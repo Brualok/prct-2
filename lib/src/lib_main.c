@@ -44,3 +44,67 @@ int process_file(FILE* in, FILE* out,
             fwrite(buffer, 1, bytes, out);
         return 0;
     }
+
+    
+    size_t buf_size = N + pat_len;
+    unsigned char* buf = (unsigned char*)malloc(buf_size);
+    if (!buf) return -1;
+
+    size_t head = 0;       
+    size_t len = 0;        
+    size_t tail_len = pat_len - 1;
+
+    
+    size_t bytes_read = fread(buf + head, 1, N, in);
+    if (bytes_read == 0) {
+        free(buf);
+        return 0; 
+    }
+    len = bytes_read;
+
+    while (1) {
+        size_t safe_end = (len > tail_len) ? (len - tail_len) : 0;
+        size_t pos = 0;
+
+        while (pos < safe_end) {
+            size_t match = find_match(buf + head, len, pos, safe_end - pat_len, pat, pat_len);
+            if (match != (size_t)-1) {
+                fwrite(buf + head + pos, 1, match - pos, out);
+                fwrite(repl, 1, repl_len, out);
+                pos = match + pat_len;
+            }
+            else {
+               
+                fwrite(buf + head + pos, 1, safe_end - pos, out);
+                pos = safe_end;
+                break;
+            }
+        }
+
+        
+        if (len > tail_len) 
+        {
+            head += (len - tail_len);
+            len = tail_len;
+        }
+        
+
+        
+        size_t free_space = buf_size - (head + len);
+        if (free_space < N) 
+        {
+            free(buf);
+            return -1;
+        }
+        bytes_read = fread(buf + head + len, 1, N, in);
+        if (bytes_read == 0) {
+            if (len > 0)
+                fwrite(buf + head, 1, len, out);
+            break;
+        }
+        len += bytes_read;
+    }
+
+    free(buf);
+    return 0;
+}
