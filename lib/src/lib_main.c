@@ -10,7 +10,9 @@ lib_main.c -  Реализация функций библиотеки заме�
 #include <string.h>
 
 #ifndef N
+#error "N must be defined at compile time (e.g., -DN=256)"
 #endif
+#define BUF_SIZE (2 * N)
 
 //match_at – проверяет, совпадает ли паттерн с данными в буфере на позиции pos.
 static int match_at(const unsigned char* data, size_t data_len,
@@ -38,83 +40,36 @@ static size_t find_match(const unsigned char* data, size_t data_len,
     return (size_t)-1;
 }
 
-
-int process_file(FILE* in, FILE* out,
-    const unsigned char* pat, size_t pat_len,
-    const unsigned char* repl, size_t repl_len)
-{ 
-    // Случай пустого паттерна (длина 0) – просто копируем файл без замен.
-    if (pat_len == 0) {
-        unsigned char buffer[N];
-        size_t bytes;
-        while ((bytes = fread(buffer, 1, N, in)) > 0)
-            fwrite(buffer, 1, bytes, out);
-        return 0;
+static int match_at_dual(const unsigned char* prev, size_t prev_off, size_t prev_len,
+    const unsigned char* cur, size_t cur_len,
+    size_t pos, const unsigned char* pat, size_t pat_len)
+{
+    size_t total = prev_len + cur_len;
+    if (pos + pat_len > total) return 0;
+    for (size_t i = 0; i < pat_len; ++i) {
+        size_t idx = pos + i;
+        unsigned char byte;
+        if (idx < prev_len) {
+            byte = prev[prev_off + idx];
+        }
+        else {
+            byte = cur[idx - prev_len];
+        }
+        if (byte != pat[i]) return 0;
     }
+    return 1;
+}
 
-    
-    /*Выделяем динамический буфер размером N + pat_len.
-     * Максимальный размер при pat_len ≤ 2N составляет 3N, что ≤ 4N.*/
-    size_t buf_size = N + pat_len;
-    unsigned char* buf = (unsigned char*)malloc(buf_size);
-    if (!buf) return -1;
-
-    size_t head = 0;       // смещение начала данных в буфере
-    size_t len = 0;        // общая длина данных в буфере
-    size_t tail_len = pat_len - 1; // количество байт, которые нужно сохранять как хвост
-
-    // Читаем первый блок (размер N) в начало буфера
-    size_t bytes_read = fread(buf + head, 1, N, in);
-    if (bytes_read == 0) {
-        free(buf);
-        return 0; 
+static size_t find_match_dual(const unsigned char* prev, size_t prev_off, size_t prev_len,
+    const unsigned char* cur, size_t cur_len,
+    size_t start, size_t search_end,
+    const unsigned char* pat, size_t pat_len)
+{
+    size_t total = prev_len + cur_len;
+    if (search_end >= total) search_end = total - pat_len;
+    for (size_t pos = start; pos <= search_end; ++pos) {
+        if (match_at_dual(prev, prev_off, prev_len, cur, cur_len, pos, pat, pat_len))
+            return pos;
     }
-    len = bytes_read;
-
-    while (1) {
-        size_t safe_end = (len > tail_len) ? (len - tail_len) : 0;
-        size_t pos = 0;
-
-        while (pos < safe_end) {
-            size_t match = find_match(buf + head, len, pos, safe_end - pat_len, pat, pat_len);
-            if (match != (size_t)-1)
-            {
-                fwrite(buf + head + pos, 1, match - pos, out);
-                fwrite(repl, 1, repl_len, out);
-                pos = match + pat_len;
-            }
-            else {
-               
-                fwrite(buf + head + pos, 1, safe_end - pos, out);
-                pos = safe_end;
-                break;
-            }
-        }
-
-        
-        if (len > tail_len) 
-        {
-            head += (len - tail_len);
-            len = tail_len;
-        }
-        
-
-        
-        size_t free_space = buf_size - (head + len);
-        if (free_space < N) 
-        {
-            free(buf);
-            return -1;
-        }
-        bytes_read = fread(buf + head + len, 1, N, in);
-        if (bytes_read == 0) {
-            if (len > 0)
-                fwrite(buf + head, 1, len, out);
-            break;
-        }
-        len += bytes_read;
-    }
-
-    free(buf);
-    return 0;
+    return (size_t)-1;
 }
