@@ -73,3 +73,22 @@ static size_t find_match_dual(const unsigned char* prev, size_t prev_off, size_t
     }
     return (size_t)-1;
 }
+static void write_range_dual(FILE* out,
+    const unsigned char* prev, size_t prev_off, size_t prev_len,
+    const unsigned char* cur, size_t cur_len,
+    size_t start, size_t end)
+{
+    size_t total = prev_len + cur_len;
+    if (start >= end || start >= total) return;
+    if (end > total) end = total;
+
+    if (start < prev_len) {
+        size_t len1 = (end < prev_len) ? (end - start) : (prev_len - start);
+        fwrite(prev + prev_off + start, 1, len1, out);
+        start = prev_len;
+    }
+    if (start < total) {
+        size_t len2 = end - start;
+        fwrite(cur + (start - prev_len), 1, len2, out);
+    }
+}
