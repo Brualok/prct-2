@@ -5,6 +5,8 @@ project(MyProject C)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
+set(N 256 CACHE STRING "Block size for reading")
+add_definitions(-DN=${N})
 
 if(MSVC)
     add_compile_options(/wd5045)
@@ -14,7 +16,6 @@ if(MSVC)
 	link_libraries(legacy_stdio_definitions.lib)
 	
 endif()
-
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(MyFunctions)

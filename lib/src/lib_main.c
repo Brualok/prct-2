@@ -153,3 +153,124 @@ static void process_union(FILE* out,
         *new_prev_off = 0;
     }
 }
+int process_file(FILE* in, FILE* out,
+    const unsigned char* pat, size_t pat_len,
+    const unsigned char* repl, size_t repl_len)
+{
+    if (pat_len == 0) {
+        unsigned char buffer[N];
+        size_t bytes;
+        while ((bytes = fread(buffer, 1, N, in)) > 0) {
+            if (ferror(in)) return -1;
+            if (fwrite(buffer, 1, bytes, out) != bytes) return -1;
+        }
+        return 0;
+    }
+
+    if (pat_len > 2 * N) {
+        return -1;
+    }
+
+    unsigned char* buf[2];
+    buf[0] = (unsigned char*)malloc(BUF_SIZE);
+    buf[1] = (unsigned char*)malloc(BUF_SIZE);
+    if (!buf[0] || !buf[1]) {
+        free(buf[0]); free(buf[1]);
+        return -1;
+    }
+
+    int cur_idx = 0;
+    int prev_idx = -1;
+    size_t cur_len = 0, prev_len = 0, prev_off = 0;
+
+    cur_len = fread(buf[0], 1, N, in);
+    if (ferror(in)) { free(buf[0]); free(buf[1]); return -1; }
+    if (cur_len == 0) {
+        free(buf[0]); free(buf[1]);
+        return 0;
+    }
+    cur_idx = 0;
+
+    while (1) {
+        if (prev_idx == -1) {
+            size_t tail_len = pat_len - 1;
+            size_t safe_end = (cur_len > tail_len) ? (cur_len - tail_len) : 0;
+            size_t pos = 0;
+
+            while (pos < safe_end) {
+                size_t match = find_match(buf[cur_idx], cur_len,
+                    pos, safe_end - pat_len,
+                    pat, pat_len);
+                if (match != (size_t)-1) {
+                    if (fwrite(buf[cur_idx] + pos, 1, match - pos, out) != (match - pos)) {
+                        free(buf[0]); free(buf[1]); return -1;
+                    }
+                    if (fwrite(repl, 1, repl_len, out) != repl_len) {
+                        free(buf[0]); free(buf[1]); return -1;
+                    }
+                    pos = match + pat_len;
+                }
+                else {
+                    if (fwrite(buf[cur_idx] + pos, 1, safe_end - pos, out) != (safe_end - pos)) {
+                        free(buf[0]); free(buf[1]); return -1;
+                    }
+                    pos = safe_end;
+                    break;
+                }
+            }
+
+            if (cur_len > tail_len) {
+                prev_idx = cur_idx;
+                prev_len = tail_len;
+                prev_off = cur_len - tail_len;
+            }
+            else {
+                prev_idx = cur_idx;
+                prev_len = cur_len;
+                prev_off = 0;
+            }
+
+            int next_idx = 1 - cur_idx;
+            cur_len = fread(buf[next_idx], 1, N, in);
+            if (ferror(in)) { free(buf[0]); free(buf[1]); return -1; }
+            if (cur_len == 0) {
+                if (prev_len > 0) {
+                    if (fwrite(buf[prev_idx] + prev_off, 1, prev_len, out) != prev_len) {
+                        free(buf[0]); free(buf[1]); return -1;
+                    }
+                }
+                break;
+            }
+            cur_idx = next_idx;
+        }
+        else {
+            size_t new_prev_len, new_prev_off;
+            process_union(out,
+                buf[prev_idx], prev_off, prev_len,
+                buf[cur_idx], cur_len,
+                pat, pat_len, repl, repl_len,
+                &new_prev_len, &new_prev_off);
+
+            prev_idx = cur_idx;
+            prev_len = new_prev_len;
+            prev_off = new_prev_off;
+
+            int next_idx = 1 - cur_idx;
+            cur_len = fread(buf[next_idx], 1, N, in);
+            if (ferror(in)) { free(buf[0]); free(buf[1]); return -1; }
+            if (cur_len == 0) {
+                if (prev_len > 0) {
+                    if (fwrite(buf[prev_idx] + prev_off, 1, prev_len, out) != prev_len) {
+                        free(buf[0]); free(buf[1]); return -1;
+                    }
+                }
+                break;
+            }
+            cur_idx = next_idx;
+        }
+    }
+
+    free(buf[0]);
+    free(buf[1]);
+    return 0;
+}
