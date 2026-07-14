@@ -92,3 +92,64 @@ static void write_range_dual(FILE* out,
         fwrite(cur + (start - prev_len), 1, len2, out);
     }
 }
+static void process_union(FILE* out,
+    const unsigned char* prev_buf, size_t prev_off, size_t prev_len,
+    const unsigned char* cur_buf, size_t cur_len,
+    const unsigned char* pat, size_t pat_len,
+    const unsigned char* repl, size_t repl_len,
+    size_t* new_prev_len, size_t* new_prev_off)
+{
+    size_t total = prev_len + cur_len;
+    size_t pos = 0;
+
+    if (pat_len == 0 || total < pat_len) {
+        *new_prev_len = cur_len;
+        *new_prev_off = 0;
+        return;
+    }
+
+    size_t tail_len = pat_len - 1;
+    size_t safe_limit = total - tail_len;
+
+    while (pos + pat_len <= total && pos < safe_limit) {
+        size_t search_end = total - pat_len;
+        if (search_end >= safe_limit) search_end = safe_limit - 1;
+
+        size_t match = find_match_dual(prev_buf, prev_off, prev_len,
+            cur_buf, cur_len,
+            pos, search_end, pat, pat_len);
+
+        if (match != (size_t)-1) {
+            write_range_dual(out, prev_buf, prev_off, prev_len, cur_buf, cur_len, pos, match);
+            fwrite(repl, 1, repl_len, out);
+            pos = match + pat_len;
+        }
+        else {
+            size_t output_end = total - pat_len;
+            if (output_end > pos)
+                write_range_dual(out, prev_buf, prev_off, prev_len, cur_buf, cur_len, pos, output_end);
+            if (cur_len >= tail_len) {
+                *new_prev_len = tail_len;
+                *new_prev_off = cur_len - tail_len;
+            }
+            else {
+                *new_prev_len = cur_len;
+                *new_prev_off = 0;
+            }
+            return;
+        }
+    }
+
+    size_t output_end = total - tail_len;
+    if (output_end > pos)
+        write_range_dual(out, prev_buf, prev_off, prev_len, cur_buf, cur_len, pos, output_end);
+
+    if (cur_len >= tail_len) {
+        *new_prev_len = tail_len;
+        *new_prev_off = cur_len - tail_len;
+    }
+    else {
+        *new_prev_len = cur_len;
+        *new_prev_off = 0;
+    }
+}
